@@ -1,18 +1,52 @@
 #!/usr/bin/python3
 
-import requests
 import bs4
+import collections
+import multiprocessing
+import requests
+
+class CurrencyConverter:
+    def __init__(self, base='EUR'):
+        self.base = base
+        self.rates = requests.get('http://api.fixer.io/latest').json()['rates']
+
+    def __call__(self, currency, amount):
+        return amount / self.rates[currency] 
+
+
+class Comparator():
+    def __init__(self, *sources):
+        converter = CurrencyConverter()
+        self.results = collections.defaultdict(lambda: [])
+        
+        for s in sources:
+            for (tld, price, currency) in s:
+                self.results[tld].append( (converter(currency, price), currency, price, type(s).__name__) )
+
+        
+        for prices in self.results.values():
+            prices.sort()
+
+    def __iter__(self):
+        return self.results.items()
+
+    def __item__(self, *a, **k):
+        return self.results.__item__(*a,**k)
+        
 
 class Page:
     method = requests.get
 
-    def fetch(self):
+    def __init__(self):
         r = type(self).method(type(self).url)
         r.raise_for_status()
-        return bs4.BeautifulSoup(r.text, 'html5lib')
+        self._text = r.text
+        self.data = list(self.extract(bs4.BeautifulSoup(r.text, 'html5lib')))
 
     def __iter__(self):
-        yield from self.extract(self.fetch())
+        return iter(self.data)
+
+
 
 class Infomaniak(Page):
     method = requests.post
