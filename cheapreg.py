@@ -2,21 +2,25 @@
 
 import bs4
 import collections
-import multiprocessing
+import threading
 import requests
 
 class CurrencyConverter:
     def __init__(self, base='EUR'):
         self.base = base
-        self.rates = requests.get('http://api.fixer.io/latest').json()['rates']
+        self.rates = requests.get('http://api.fixer.io/latest?base={}'.format(base)).json()['rates']
 
     def __call__(self, currency, amount):
+        if currency == self.base:
+            return amount
         return amount / self.rates[currency] 
+
 
 
 class Comparator():
     def __init__(self, *sources):
         converter = CurrencyConverter()
+        self.converter = converter
         self.results = collections.defaultdict(lambda: [])
         
         for s in sources:
@@ -28,16 +32,27 @@ class Comparator():
             prices.sort()
 
     def __iter__(self):
-        return self.results.items()
+        return iter(self.results)
 
-    def __item__(self, *a, **k):
-        return self.results.__item__(*a,**k)
+    def __getitem__(self, *a, **k):
+        return self.results.__getitem__(*a,**k)
+
+    def pretty(self):
+        for tld in sorted(self):
+            print("{}:".format(tld))
+            for (price, currency, orig_price, supplier) in self[tld]:
+                print("  {} {} from {} (original: {} {})".format(self.converter.base, price, supplier, currency, orig_price))
+
         
 
 class Page:
     method = requests.get
 
-    def __init__(self):
+    def __init__(self, skip=False):
+        if not skip:
+            self.fetch()
+
+    def fetch(self):
         r = type(self).method(type(self).url)
         r.raise_for_status()
         self._text = r.text
@@ -45,6 +60,7 @@ class Page:
 
     def __iter__(self):
         return iter(self.data)
+
 
 
 
@@ -85,9 +101,42 @@ class Gandi(Page):
                     price = float(row.findAll('td')[1].find('div').text.strip().split()[0].replace(',','.'))
                     yield (tld, price, 'EUR')
 
+class OVH(Page):
+    url = 'https://www.ovh.com/fr/domaines/tarifs/'
+
+    def extract(self, html):
+        tab = html.find('table', id='dataTable')
+        for row in tab.find_all('tr', class_='list-group-item'):
+            tld = row['data-ext']
+            price = float(row.find('td', attrs={'data-title': 'Création'})['data-order'])
+            yield (tld, price, 'EUR')
+
+
+class DomainContext(Page):
+    url = 'http://www.domaincontext.com/pricing/'
+
+    def extract(self, html):
+        tab = html.find('div', id='DOMAIN').find('table')
+        for row in tab.find_all('tr'):
+            cells = row.find_all('td')
+            if cells:
+                tld = '.' + cells[0].text.strip()
+                price = float(cells[1].text.strip().split()[0])
+                yield (tld, price, 'USD')
+
+
+all = [Infomaniak, Dynadot, Gandi, OVH, DomainContext]
 
 def main():
-    print(list(Gandi()))
+    sources = [ s(skip=True) for s in all ]
+    threads = [ threading.Thread(group=None, target=s.fetch) for s in sources ]
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    Comparator(*sources).pretty()
 
 if __name__ == '__main__':
     main()
