@@ -6,6 +6,14 @@ import threading
 import requests
 
 class CurrencyConverter:
+    """ Gets forex rates from fixer.io and converts currencies
+    >>> c = CurrencyConverter('EUR')
+    >>> c('USD', 10)
+    8.3998
+    
+    (10 USD is 8.39 EUR)
+
+    """
     def __init__(self, base='EUR'):
         self.base = base
         self.rates = requests.get('http://api.fixer.io/latest?base={}'.format(base)).json()['rates']
@@ -18,8 +26,17 @@ class CurrencyConverter:
 
 
 class Comparator():
-    def __init__(self, *sources):
-        converter = CurrencyConverter()
+    """ Compares domain prices using conv
+
+    >>> c = Comparator(OVH(), DynaDot())
+    >>> c['.com']
+    [(7.99, 'EUR', 7.99, 'OVH'), (8.3914, 'USD', 9,99, 'Dynadot')]
+
+    Best price is 7.99 € at OVH, or 9.99$ at Dynadot (which converts to 8.391 EUR)
+
+    """
+    def __init__(self, *sources, currency='EUR'):
+        converter = CurrencyConverter(base=currency)
         self.converter = converter
         self.results = collections.defaultdict(lambda: [])
         
